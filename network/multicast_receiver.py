@@ -30,7 +30,7 @@ def start_multicast_receiver():
                 message = data.decode('utf-8')
                 payload = json.loads(message)
 
-                sent_time = datetime.strptime(payload['timestamp'], "%Y-%m-%d %H:%M:%S")
+                sent_time = datetime.strptime(payload['timestamp'], "%Y-%m-%d %H:%M:%S.%f")
                 recv_time = datetime.now()
                 latency_ms = (recv_time - sent_time).total_seconds() * 1000
 

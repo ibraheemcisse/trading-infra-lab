@@ -32,7 +32,7 @@ def start_multicast_sender():
             prices[symbol] = round(prices[symbol] + change, 2)
             
             # 4. Construct the payload with a timestamp
-            current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
             payload = {
                 "timestamp": current_time,
                 "symbol": symbol,
