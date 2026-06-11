@@ -21,6 +21,10 @@ def start_multicast_receiver():
     print(f"Listening for multicast packets on {MULTICAST_GROUP}:{PORT}...")
     print("Press Ctrl+C to stop.\n")
 
+    expected_sequence = None
+    total_received = 0
+    total_dropped = 0
+
     try:
         while True:
             data, sender_address = sock.recvfrom(1024)
@@ -30,17 +34,40 @@ def start_multicast_receiver():
                 message = data.decode('utf-8')
                 payload = json.loads(message)
 
-                sent_time = datetime.strptime(payload['timestamp'], "%Y-%m-%d %H:%M:%S.%f")
+                # Latency measurement
+                sent_time = datetime.strptime(
+                    payload['timestamp'], "%Y-%m-%d %H:%M:%S.%f"
+                )
                 recv_time = datetime.now()
                 latency_ms = (recv_time - sent_time).total_seconds() * 1000
 
-                print(f"[{received_time}] {payload['symbol']} @ {payload['price']} | latency: {latency_ms:.2f}ms | from {sender_address}")
+                # Packet loss detection
+                seq = payload.get('sequence')
+                if expected_sequence is not None and seq != expected_sequence:
+                    dropped = seq - expected_sequence
+                    total_dropped += dropped
+                    print(f"  *** PACKET LOSS: {dropped} packet(s) dropped "
+                          f"(expected #{expected_sequence}, got #{seq}) ***")
+                expected_sequence = seq + 1
+                total_received += 1
+
+                print(
+                    f"[{received_time}] #{seq} {payload['symbol']} @ {payload['price']} "
+                    f"| latency: {latency_ms:.2f}ms "
+                    f"| received: {total_received} dropped: {total_dropped}"
+                )
 
             except UnicodeDecodeError:
                 print(f"[{received_time}] Recv raw bytes (undecodable): {data}")
 
     except KeyboardInterrupt:
         print("\nStopping receiver...")
+        print(f"\nSession Summary:")
+        print(f"  Total received : {total_received}")
+        print(f"  Total dropped  : {total_dropped}")
+        if total_received + total_dropped > 0:
+            loss_pct = (total_dropped / (total_received + total_dropped)) * 100
+            print(f"  Packet loss    : {loss_pct:.2f}%")
     finally:
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
         sock.close()
