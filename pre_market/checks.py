@@ -1,10 +1,11 @@
-import psutil
 import socket
-import subprocess
-from datetime import datetime
+import struct
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable, List
+
+import psutil
 
 
 class CheckStatus(Enum):
@@ -31,7 +32,7 @@ class CheckResult:
 def check_system_resources() -> CheckResult:
     cpu = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
+    disk = psutil.disk_usage("/")
 
     issues = []
     if cpu > 80:
@@ -45,17 +46,17 @@ def check_system_resources() -> CheckResult:
         return CheckResult(
             name="System Resources",
             status=CheckStatus.FAIL,
-            message=f"High usage: {', '.join(issues)}"
+            message=f"High usage: {', '.join(issues)}",
         )
     return CheckResult(
         name="System Resources",
         status=CheckStatus.PASS,
-        message=f"CPU {cpu}% | Memory {memory.percent}% | Disk {disk.percent}%"
+        message=f"CPU {cpu}% | Memory {memory.percent}% | Disk {disk.percent}%",
     )
 
 
 def check_processes() -> CheckResult:
-    required_processes = ["sshd", "systemd"]  # Replace with real trading processes
+    required_processes = ["sshd", "systemd"]
 
     running = {
         (proc.info.get("name") or "").lower()
@@ -68,12 +69,12 @@ def check_processes() -> CheckResult:
         return CheckResult(
             name="Trading Processes",
             status=CheckStatus.FAIL,
-            message=f"Missing: {', '.join(missing)}"
+            message=f"Missing: {', '.join(missing)}",
         )
     return CheckResult(
         name="Trading Processes",
         status=CheckStatus.PASS,
-        message="All required processes running"
+        message="All required processes running",
     )
 
 
@@ -98,28 +99,66 @@ def check_network_connectivity() -> CheckResult:
         return CheckResult(
             name="Network Connectivity",
             status=CheckStatus.FAIL,
-            message=f"Unreachable: {', '.join(failed)}"
+            message=f"Unreachable: {', '.join(failed)}",
         )
     return CheckResult(
         name="Network Connectivity",
         status=CheckStatus.PASS,
-        message="All endpoints reachable"
+        message="All endpoints reachable",
     )
+
+
+def check_multicast_feed() -> CheckResult:
+    MULTICAST_GROUP = "239.0.0.1"
+    MULTICAST_PORT = 5001
+    TIMEOUT_SECONDS = 3
+
+    sock = None
+    try:
+        sock = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_DGRAM,
+            socket.IPPROTO_UDP,
+        )
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("", MULTICAST_PORT))
+
+        membership = struct.pack(
+            "4sL",
+            socket.inet_aton(MULTICAST_GROUP),
+            socket.INADDR_ANY,
+        )
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+        sock.settimeout(TIMEOUT_SECONDS)
+
+        data, addr = sock.recvfrom(65535)
+        return CheckResult(
+            name="Multicast Feed",
+            status=CheckStatus.PASS,
+            message=f"Received {len(data)} bytes from {addr[0]}",
+        )
+    except socket.timeout:
+        return CheckResult(
+            name="Multicast Feed",
+            status=CheckStatus.FAIL,
+            message=f"No packets received within {TIMEOUT_SECONDS}s",
+        )
+    except Exception as exc:
+        return CheckResult(
+            name="Multicast Feed",
+            status=CheckStatus.FAIL,
+            message=f"Error: {exc}",
+        )
+    finally:
+        if sock is not None:
+            sock.close()
 
 
 def check_fix_sessions() -> CheckResult:
     return CheckResult(
         name="FIX Sessions",
         status=CheckStatus.SKIP,
-        message="Not yet implemented"
-    )
-
-
-def check_multicast_feed() -> CheckResult:
-    return CheckResult(
-        name="Multicast Feed",
-        status=CheckStatus.SKIP,
-        message="Not yet implemented"
+        message="Not yet implemented",
     )
 
 
@@ -127,19 +166,11 @@ def check_multicast_feed() -> CheckResult:
 # Market Data
 # ---------------------------------------------------------------------------
 
-def check_pricing_feeds() -> CheckResult:
-    return CheckResult(
-        name="Pricing Feeds",
-        status=CheckStatus.SKIP,
-        message="Not yet implemented"
-    )
-
-
 def check_market_data_latency() -> CheckResult:
     return CheckResult(
         name="Market Data Latency",
         status=CheckStatus.SKIP,
-        message="Not yet implemented"
+        message="Not yet implemented",
     )
 
 
@@ -147,7 +178,15 @@ def check_stale_prices() -> CheckResult:
     return CheckResult(
         name="Stale Prices",
         status=CheckStatus.SKIP,
-        message="Not yet implemented"
+        message="Not yet implemented",
+    )
+
+
+def check_pricing_feeds() -> CheckResult:
+    return CheckResult(
+        name="Pricing Feeds",
+        status=CheckStatus.SKIP,
+        message="Not yet implemented",
     )
 
 
@@ -168,19 +207,19 @@ def check_log_errors() -> CheckResult:
         return CheckResult(
             name="Log Errors",
             status=CheckStatus.SKIP,
-            message=f"{log_file} not found"
+            message=f"{log_file} not found",
         )
 
     if error_count > 10:
         return CheckResult(
             name="Log Errors",
             status=CheckStatus.FAIL,
-            message=f"{error_count} errors found in {log_file}"
+            message=f"{error_count} errors found in {log_file}",
         )
     return CheckResult(
         name="Log Errors",
         status=CheckStatus.PASS,
-        message=f"{error_count} errors in {log_file}"
+        message=f"{error_count} errors in {log_file}",
     )
 
 
@@ -188,7 +227,7 @@ def check_database_connectivity() -> CheckResult:
     return CheckResult(
         name="Database Connectivity",
         status=CheckStatus.SKIP,
-        message="Not yet implemented"
+        message="Not yet implemented",
     )
 
 
@@ -196,7 +235,7 @@ def check_queue_depths() -> CheckResult:
     return CheckResult(
         name="Queue Depths",
         status=CheckStatus.SKIP,
-        message="Not yet implemented"
+        message="Not yet implemented",
     )
 
 
@@ -208,11 +247,11 @@ CHECKS: List[Callable[[], CheckResult]] = [
     check_system_resources,
     check_processes,
     check_network_connectivity,
-    check_fix_sessions,
     check_multicast_feed,
-    check_pricing_feeds,
+    check_fix_sessions,
     check_market_data_latency,
     check_stale_prices,
+    check_pricing_feeds,
     check_log_errors,
     check_database_connectivity,
     check_queue_depths,
@@ -220,13 +259,15 @@ CHECKS: List[Callable[[], CheckResult]] = [
 
 
 def run_all_checks() -> int:
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
     print("=" * 80)
     print("PRE-MARKET HEALTH CHECK")
     print(f"Timestamp : {timestamp}")
     print("=" * 80)
 
-    results = []
+    results: List[CheckResult] = []
+
     for check in CHECKS:
         try:
             result = check()
@@ -234,10 +275,14 @@ def run_all_checks() -> int:
             result = CheckResult(
                 name=check.__name__,
                 status=CheckStatus.FAIL,
-                message=f"Exception: {exc}"
+                message=f"Unhandled exception: {exc}",
             )
         results.append(result)
-        print(f"[{result.status.value:<4}] {result.name:<25} {result.message}")
+        print(
+            f"[{result.status.value:<4}] "
+            f"{result.name:<25} "
+            f"{result.message}"
+        )
 
     has_failures = any(r.status == CheckStatus.FAIL for r in results)
     has_skipped = any(r.status == CheckStatus.SKIP for r in results)
