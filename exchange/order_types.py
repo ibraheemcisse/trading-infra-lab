@@ -1,8 +1,8 @@
 # order_types.py
 
 from dataclasses import dataclass
-from enum import Enum
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 
@@ -34,6 +34,11 @@ class Order:
     price: Optional[float]
     timestamp: datetime
     status: OrderStatus = OrderStatus.NEW
+    remaining_quantity: int = 0
+
+    def __post_init__(self):
+        if self.remaining_quantity == 0:
+            self.remaining_quantity = self.quantity
 
 
 @dataclass
