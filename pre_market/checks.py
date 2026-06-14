@@ -175,31 +175,32 @@ def check_multicast() -> CheckResult:
 # ---------------------------------------------------------------------------
 
 def check_market_data_latency() -> CheckResult:
+    """
+    Checks market data latency.
+
+    Combines two measurements:
+    1. This check's own fresh multicast read - measures end-to-end
+       wire latency from sender to a brand-new listener.
+    2. feed_monitor's reported feed_latency_ms - measures the primary
+       feed consumer's processing latency, which can be degraded by
+       consumer-side issues (GC pause, CPU contention) that this
+       check's own fresh socket would never see.
+
+    See postmortem 002, Finding 3: a 150ms processing delay injected
+    into feed_monitor was invisible to this check when it relied only
+    on its own measurement (own latency stayed ~2ms while
+    feed_monitor correctly reported ~150ms). The gate must consider
+    the worst of both.
+    """
     sock = None
+    own_latency_ms = None
+
     try:
         sock = _make_multicast_socket(timeout=3)
         payload, _ = _receive_one(sock)
 
         sent = datetime.strptime(payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
-        latency_ms = (datetime.now() - sent).total_seconds() * 1000
-
-        if latency_ms > CONFIG["latency_fail_ms"]:
-            return CheckResult(
-                "Market Data Latency",
-                CheckStatus.FAIL,
-                f"{latency_ms:.2f}ms — exceeds {CONFIG['latency_fail_ms']}ms threshold"
-            )
-        if latency_ms > CONFIG["latency_warn_ms"]:
-            return CheckResult(
-                "Market Data Latency",
-                CheckStatus.PASS,
-                f"{latency_ms:.2f}ms — above warn threshold {CONFIG['latency_warn_ms']}ms"
-            )
-        return CheckResult(
-            "Market Data Latency",
-            CheckStatus.PASS,
-            f"{latency_ms:.2f}ms"
-        )
+        own_latency_ms = (datetime.now() - sent).total_seconds() * 1000
     except socket.timeout:
         return CheckResult(
             "Market Data Latency",
@@ -211,6 +212,40 @@ def check_market_data_latency() -> CheckResult:
     finally:
         if sock:
             sock.close()
+
+    feed_monitor_latency_ms = None
+    try:
+        resp = requests.get(CONFIG["feed_monitor_url"], timeout=2)
+        for line in resp.text.splitlines():
+            if line.startswith("feed_latency_ms "):
+                feed_monitor_latency_ms = float(line.split()[-1])
+                break
+    except Exception:
+        pass  # feed_monitor unreachable - fall back to own measurement only
+
+    worst_latency_ms = own_latency_ms
+    source = "own measurement"
+    if feed_monitor_latency_ms is not None and feed_monitor_latency_ms > own_latency_ms:
+        worst_latency_ms = feed_monitor_latency_ms
+        source = "feed_monitor"
+
+    if worst_latency_ms > CONFIG["latency_fail_ms"]:
+        return CheckResult(
+            "Market Data Latency",
+            CheckStatus.FAIL,
+            f"{worst_latency_ms:.2f}ms ({source}) — exceeds {CONFIG['latency_fail_ms']}ms threshold"
+        )
+    if worst_latency_ms > CONFIG["latency_warn_ms"]:
+        return CheckResult(
+            "Market Data Latency",
+            CheckStatus.PASS,
+            f"{worst_latency_ms:.2f}ms ({source}) — above warn threshold {CONFIG['latency_warn_ms']}ms"
+        )
+    return CheckResult(
+        "Market Data Latency",
+        CheckStatus.PASS,
+        f"{worst_latency_ms:.2f}ms ({source})"
+    )
 
 
 def check_stale_prices() -> CheckResult:
