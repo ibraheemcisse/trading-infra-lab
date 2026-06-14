@@ -1,0 +1,3 @@
+{"timestamp": "2026-06-14T06:31:40.907193+00:00", "order_id": "ed3a6eaa", "symbol": "AAPL", "reason": "Order size 5000 exceeds max 1000"}
+{"timestamp": "2026-06-14T06:31:40.916450+00:00", "order_id": "4e290833", "symbol": "AAPL", "reason": "Price deviation 438.33% exceeds limit"}
+{"timestamp": "2026-06-14T06:31:40.929897+00:00", "order_id": "13ee9bc1", "symbol": "AAPL", "reason": "Kill switch active"}
