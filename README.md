@@ -3,7 +3,7 @@
 ---
 ## Architecture
 
-![arch.png)
+![AWS EKS Platform — Terraform + GitOps](./docs/arch.png)
 ---
 
 A single-host trading systems lab that recreates core components of electronic trading infrastructure: market data distribution, FIX order flow, a matching engine with pre-trade risk controls, observability, and controlled failure injection.
