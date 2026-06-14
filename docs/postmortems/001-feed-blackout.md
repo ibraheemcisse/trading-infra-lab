@@ -86,12 +86,42 @@ These were not caused by the chaos test but were caught by the same
 gate, which is itself a useful demonstration of the gate's value —
 it surfaces real operational debt, not just injected failures.
 
-## Action items
+## Resolution
 
-- [ ] Add systemd unit for `multicast_sender.py` with `Restart=always`
-- [ ] Add systemd unit for the FIX simulator
-- [ ] Run `docker system prune` and document disk usage baseline
+Both additional findings were fixed the same day:
+
+- **FIX Sessions:** Moved the FIX simulator from `/tmp` (ephemeral) into
+  the repo at `fix_protocol/simulator/fix_session_simulator.py`, and
+  created a systemd unit (`fix-simulator.service`) with `Restart=always`.
+
+- **Disk usage:** Ran `docker system prune -af`, reducing disk usage
+  from 85.5% to 77.9%.
+
+- **Multicast sender persistence:** Created a systemd unit
+  (`multicast-sender.service`) with `Restart=always`, addressing
+  action item #1 — the original chaos scenario (sender death) will
+  now self-recover within ~2 seconds without manual intervention.
+
+### Post-fix verification
+Results   : 10 passed | 0 failed | 1 skipped
+
+MARKET OPEN STATUS : WARNING - SKIPPED CHECKS PRESENT
+
+The remaining `SKIP` is `Database` — connection env vars
+(`DB_USER`, `DB_PASSWORD`, `DB_NAME`) are not persisted across
+shell sessions. Tracked as a new action item below.
+
+## Updated action items
+
+- [x] Add systemd unit for `multicast_sender.py` with `Restart=always`
+- [x] Add systemd unit for the FIX simulator
+- [x] Run `docker system prune` — disk 85.5% → 77.9%
 - [ ] Document the `Pricing Feeds` settling-time behavior in
       `runbooks/market_data_gap.md` verification section
 - [ ] Future chaos test: feed blackout while exchange/matching engine
       is actively processing orders — verify state reconciliation
+- [ ] Add `EnvironmentFile` for database credentials so `Database`
+      check doesn't SKIP on fresh sessions
+- [ ] Re-test chaos 01 — with `multicast-sender.service` now active,
+      `pkill -f multicast_sender.py` should self-recover within ~2s
+      without manual `recover`
