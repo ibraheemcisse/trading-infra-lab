@@ -111,6 +111,23 @@ The remaining `SKIP` is `Database` — connection env vars
 (`DB_USER`, `DB_PASSWORD`, `DB_NAME`) are not persisted across
 shell sessions. Tracked as a new action item below.
 
+## Re-test: Automatic recovery via systemd
+
+After adding `multicast-sender.service` with `Restart=always`,
+the original failure scenario (sender process killed) was re-tested:
+
+- `sudo pkill -f multicast_sender.py` run at 07:29:1x
+- systemd detected the exit and restarted the service automatically
+  at 07:29:15 (within `RestartSec=2`)
+- No manual `chaos/01_feed_blackout.py recover` step was required
+
+This confirms action item "Add systemd unit for multicast_sender.py
+with Restart=always" closes the original gap: the system now
+self-heals from this specific failure mode without operator
+intervention. Detection (pre_market check / Prometheus alert) is
+still required to know an incident occurred at all — auto-restart
+reduces MTTR but does not eliminate the need for alerting.
+
 ## Updated action items
 
 - [x] Add systemd unit for `multicast_sender.py` with `Restart=always`
