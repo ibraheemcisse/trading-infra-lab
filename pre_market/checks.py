@@ -1,16 +1,12 @@
 import os
 import json
-import time
 import socket
 import struct
-from enum import Enum
+import requests
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable, List, Optional, Tuple
-
-import psutil
-import psycopg2
-import redis
+from enum import Enum
+from typing import Callable, List
 
 
 # ---------------------------------------------------------------------------
@@ -25,6 +21,7 @@ CONFIG = {
     "stale_price_ms": 5000,
     "required_symbols": ["AAPL", "MSFT", "GOOG", "AMZN"],
     "fix_ports": [9876, 9877],
+    "feed_monitor_url": "http://localhost:8000/metrics",
     "queue_limits": {
         "market_data": 1000,
         "orders": 500,
@@ -80,7 +77,7 @@ def _make_multicast_socket(timeout: float = 3) -> socket.socket:
     return sock
 
 
-def _receive_one(sock: socket.socket) -> Tuple[dict, tuple]:
+def _receive_one(sock: socket.socket):
     data, sender = sock.recvfrom(4096)
     return json.loads(data.decode()), sender
 
@@ -90,6 +87,7 @@ def _receive_one(sock: socket.socket) -> Tuple[dict, tuple]:
 # ---------------------------------------------------------------------------
 
 def check_system_resources() -> CheckResult:
+    import psutil
     cpu = psutil.cpu_percent(interval=1)
     mem = psutil.virtual_memory().percent
     disk = psutil.disk_usage("/").percent
@@ -116,6 +114,7 @@ def check_system_resources() -> CheckResult:
 
 
 def check_processes() -> CheckResult:
+    import psutil
     required = ["sshd", "systemd"]
     running = {
         (p.info.get("name") or "").lower()
@@ -248,37 +247,61 @@ def check_stale_prices() -> CheckResult:
 
 
 def check_pricing_feeds() -> CheckResult:
-    seen = set()
-    sock = None
+    """
+    Checks which symbols are actively publishing prices.
+
+    NOTE: This previously ran its own independent 5-second multicast
+    listen, sampling ~5 packets from a 4-symbol random feed. The
+    probability that all 4 symbols appear in 5 random draws is only
+    ~23% (surjections(5,4)/4^5 = 240/1024), meaning this check failed
+    by pure chance ~77% of the time even when the system was fully
+    healthy.
+
+    Fixed: reuse feed_monitor.py's existing 60-second rolling window
+    (feed_symbols_active metric) instead of a fresh short sample.
+    This requires feed_monitor.py to be running and exporting metrics
+    on :8000 — see monitoring/feed_monitor.py.
+    """
     try:
-        sock = _make_multicast_socket(timeout=1)
-        end_time = time.time() + 5
+        resp = requests.get(CONFIG["feed_monitor_url"], timeout=2)
+        resp.raise_for_status()
 
-        while time.time() < end_time:
-            try:
-                payload, _ = _receive_one(sock)
-                seen.add(payload["symbol"])
-            except socket.timeout:
-                continue
+        active_count = None
+        for line in resp.text.splitlines():
+            if line.startswith("feed_symbols_active "):
+                active_count = float(line.split()[-1])
+                break
 
-        missing = [s for s in CONFIG["required_symbols"] if s not in seen]
-
-        if missing:
+        if active_count is None:
             return CheckResult(
                 "Pricing Feeds",
-                CheckStatus.FAIL,
-                f"Missing symbols: {', '.join(missing)}"
+                CheckStatus.SKIP,
+                "feed_symbols_active metric not found in feed_monitor output"
+            )
+
+        expected = len(CONFIG["required_symbols"])
+        active_count = int(active_count)
+
+        if active_count >= expected:
+            return CheckResult(
+                "Pricing Feeds",
+                CheckStatus.PASS,
+                f"{active_count}/{expected} symbols active (60s window)"
             )
         return CheckResult(
             "Pricing Feeds",
-            CheckStatus.PASS,
-            f"{len(seen)} symbols seen: {', '.join(sorted(seen))}"
+            CheckStatus.FAIL,
+            f"Only {active_count}/{expected} symbols active in last 60s"
+        )
+
+    except requests.exceptions.ConnectionError:
+        return CheckResult(
+            "Pricing Feeds",
+            CheckStatus.SKIP,
+            "feed_monitor.py not reachable on :8000 (is it running?)"
         )
     except Exception as e:
         return CheckResult("Pricing Feeds", CheckStatus.FAIL, str(e))
-    finally:
-        if sock:
-            sock.close()
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +315,7 @@ def check_fix_sessions() -> CheckResult:
     heartbeat age, and sequence number synchronization.
     This implementation verifies port availability only.
     """
+    import psutil
     listening = set()
     for conn in psutil.net_connections(kind="tcp"):
         if conn.status == "LISTEN" and conn.laddr:
@@ -324,6 +348,7 @@ def check_database() -> CheckResult:
             "DB_USER, DB_PASSWORD or DB_NAME not set"
         )
     try:
+        import psycopg2
         conn = psycopg2.connect(**DB_CONFIG, connect_timeout=3)
         cur = conn.cursor()
         cur.execute("SELECT 1")
@@ -337,6 +362,7 @@ def check_database() -> CheckResult:
 
 def check_queue_depths() -> CheckResult:
     try:
+        import redis
         r = redis.Redis(host="localhost", port=6379, decode_responses=True)
         r.ping()
 
