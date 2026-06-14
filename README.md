@@ -1,10 +1,6 @@
 # trading-infra-lab
 
----
-## Architecture
-
-![AWS EKS Platform — Terraform + GitOps](./docs/arch.png)
----
+![Trading Infra Lab Architecture](./docs/arch.png)
 
 A single-host trading systems lab that recreates core components of electronic trading infrastructure: market data distribution, FIX order flow, a matching engine with pre-trade risk controls, observability, and controlled failure injection.
 
@@ -44,23 +40,7 @@ The goal is not correctness in isolation, but **operational behavior under stres
 
 ## Architecture (simplified)
 
-
-Market Data (UDP multicast)
-↓
-Feed Monitor (Prometheus exporter)
-↓
-Pre-Market Gate (system checks)
-↓
-FIX Order Entry
-↓
-Matching Engine + Risk Controls
-↓
-Trade Events
-├── UDP multicast (market data)
-└── Kafka (event stream)
-↓
-Observability (Prometheus + Grafana)
-
+![Trading Infra Lab Architecture simplified](./docs/trading infra mechanism.jpg)
 
 All components run on a single Ubuntu 22.04 instance.
 
@@ -115,7 +95,7 @@ Keyed by order ID across partitions.
 
 ## Pre-Market Gate
 
-A system health gate that runs before trading activity:
+A system health gate that runs before trading activity.
 
 Checks include:
 - multicast feed health
@@ -157,7 +137,7 @@ Each scenario has:
 Real operational incidents from running the system:
 
 - Feed blackout → cascading failure detection improvements
-- Latency injection → discovered multicast testing blind spot
+- Latency injection → discovered multicast loopback blind spot, fixed two safety-gate defects
 - CPU exhaustion on t3.micro → resource overcommit + recovery via AWS API
 
 ---
@@ -180,14 +160,23 @@ python3 pre_market/checks.py
 
 # exchange test
 cd exchange && python3 test_exchange.py
-Key lessons
-Burstable instances are not safe for multi-service always-on stacks
-Restart policies without resource limits amplify failures
-Observability cannot compensate for system overload
-Same-host networking can invalidate fault injection assumptions
-Small errors (file mixups) can cascade into system-wide instability
-Status
+```
+
+---
+
+## Key lessons
+
+- Burstable instances are not safe for multi-service always-on stacks
+- Restart policies without resource limits amplify failures
+- Observability cannot compensate for system overload
+- Same-host networking can invalidate fault injection assumptions
+- Small errors (file mixups) can cascade into system-wide instability
+
+---
+
+## Status
 
 This is an active experimental system. Components are continuously being tested, broken, and improved.
 
 The primary output of this project is not uptime — it is understanding failure modes in trading infrastructure.
+
