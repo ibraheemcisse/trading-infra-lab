@@ -40,7 +40,8 @@ The goal is not correctness in isolation, but **operational behavior under stres
 
 ## Architecture (simplified)
 
-![Trading Infra Lab Architecture simplified](./docs/trading infra mechanism.jpg)
+![Trading Infra Lab Architecture simplified](./docs/trading-infra-mechanism.jpg)
+
 
 All components run on a single Ubuntu 22.04 instance.
 
