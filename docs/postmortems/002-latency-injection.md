@@ -82,6 +82,70 @@ Run 5: [PASS] Pricing Feeds  4/4 symbols active (60s window)
 
 5/5 PASS — fix confirmed.
 
+## Finding 3: Market Data Latency check was blind to feed_monitor degradation
+
+With application-level injection working (Finding 1's resolution),
+the original chaos 02 question was finally tested: *can the gate
+detect a feed that is alive but degraded?*
+
+**Initial result: no.** With 150ms injected into `feed_monitor`'s
+processing loop:
+feed_latency_ms 150.459        (feed_monitor correctly reports it)
+
+feed_injected_delay_ms 150.0
+
+[PASS] Market Data Latency 1.88ms   <- gate missed it entirely
+
+**Root cause:** `check_market_data_latency()` opened its own fresh
+multicast socket and measured wire latency directly, never consulting
+`feed_monitor`. This measures a *different* thing (raw network
+latency to a brand-new listener) than `feed_monitor`'s reported
+latency (its own processing latency, including injected/real delay).
+The check happened to measure the metric unaffected by this failure
+mode.
+
+**Why this matters:** `feed_monitor` is the system's primary feed
+health exporter - Grafana and Prometheus alerting are built on it. If
+`feed_monitor` itself degrades (GC pause, CPU contention - a very
+real scenario on a t3.micro, see postmortem 003), the pre-market
+gate's latency check would not reflect that degradation at all.
+
+**Fix:** `check_market_data_latency` now queries `feed_monitor`'s
+`feed_latency_ms` metric in addition to its own measurement, and uses
+whichever is worse.
+
+**Validation after fix:**
+With injection:  [FAIL] Market Data Latency  150.46ms (feed_monitor) — exceeds 100ms threshold
+
+After recovery:  [PASS] Market Data Latency  2.09ms (own measurement)
+
+Gate correctly fails during degradation and correctly passes (using
+its own measurement) once `feed_monitor` recovers.
+
+## Chaos 02 - final status: COMPLETE
+
+All three findings from this chaos test are resolved:
+1. Topology limitation documented, application-level injection built
+2. Pricing Feeds statistical bug fixed and validated
+3. Market Data Latency blind spot found, fixed, and validated
+
+This chaos test - originally a simple "inject latency, check the
+gate" exercise - ended up finding and fixing two independent defects
+in the safety gate itself. Both defects shared a root cause pattern:
+**checks that bypass `feed_monitor` and take their own independent
+measurements can disagree with `feed_monitor`'s view of system
+health, and the gate was trusting the wrong one.**
+
+## Final action items
+
+- [x] Application-level latency injection (Finding 1)
+- [x] Pricing Feeds fix + validation (Finding 2)
+- [x] Market Data Latency fix + validation (Finding 3)
+- [ ] Audit `check_stale_prices` for the same pattern - does it also
+      do an independent fresh read that could disagree with
+      `feed_monitor`'s view?
+
+
 ## What this means for the project
 
 A pre-trade safety gate that fails ~77% of the time on a healthy
@@ -92,13 +156,4 @@ this is arguably the single most valuable result of the entire chaos
 testing effort so far, and it was found through honest
 investigation, not by design.
 
-## Action items
 
-- [x] Rewrite `check_pricing_feeds` to use `feed_monitor`'s 60s
-      rolling window via its `/metrics` endpoint
-- [x] Validate fix with 5 consecutive clean runs
-- [ ] Add a note to postmortem 001 referencing this finding
-- [ ] Add application-level latency injection to properly complete
-      chaos test 02's original goal
-- [ ] Document `feed_monitor.py` as a hard dependency of
-      `pre_market/checks.py` in the README architecture section
