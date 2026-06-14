@@ -16,7 +16,7 @@ import argparse
 import subprocess
 import sys
 
-INTERFACE = "eth0"
+INTERFACE = "ens5"
 DELAY_MS = 250
 
 
