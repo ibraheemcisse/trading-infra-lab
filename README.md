@@ -179,5 +179,5 @@ cd exchange && python3 test_exchange.py
 
 This is an active experimental system. Components are continuously being tested, broken, and improved.
 
-The primary output of this project is not uptime — it is understanding failure modes in trading infrastructure.
+The primary output of this project is not uptime it is understanding failure modes in trading infrastructure.
 
