@@ -10,44 +10,43 @@
 The `multicast_sender.py` process was deliberately killed to simulate
 a market data feed outage. The pre-market gate correctly detected
 the failure and cascading downstream impacts, returning BLOCKED.
-Recovery was successful — restarting the sender restored all
+Recovery was successful. Restarting the sender restored all
 multicast-dependent checks within approximately 30 seconds.
 
 ## Timeline
 
-| Time (UTC) | Event |
-|---|---|
-| ~07:13:30 | `chaos/01_feed_blackout.py inject` run — sender process killed |
-| 07:13:46 | `pre_market/checks.py` run — **BLOCKED**, 6/11 checks failed |
-| ~07:15:40 | `chaos/01_feed_blackout.py recover` run — sender restarted |
-| 07:15:54 | `pre_market/checks.py` run — multicast checks PASS, but `Pricing Feeds` still FAIL (rolling window not yet populated) |
-| 07:16:10 | `pre_market/checks.py` run — **8/11 PASS**, all multicast checks PASS |
+| Time (UTC) | Event                                                                                                                |
+| ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| ~07:13:30  | `chaos/01_feed_blackout.py inject` run, sender process killed                                                        |
+| 07:13:46   | `pre_market/checks.py` run, **BLOCKED**, 6/11 checks failed                                                          |
+| ~07:15:40  | `chaos/01_feed_blackout.py recover` run, sender restarted                                                            |
+| 07:15:54   | `pre_market/checks.py` run, multicast checks PASS, but `Pricing Feeds` still FAIL (rolling window not yet populated) |
+| 07:16:10   | `pre_market/checks.py` run, **8/11 PASS**, all multicast checks PASS                                                 |
 
 **Approximate time to detect:** immediate (pre_market check fails on next run)
-**Approximate time to recover (multicast layer):** ~30 seconds total,
-of which ~15 seconds was the `Pricing Feeds` rolling-window settling time
+**Approximate time to recover (multicast layer):** ~30 seconds total, of which ~15 seconds was the `Pricing Feeds` rolling-window settling time
 
 ## Impact
 
 When the feed was down, the pre-market gate correctly identified
 **cascading failure** across four dependent checks:
 
-- `Multicast Feed` — no packets received
-- `Market Data Latency` — cannot measure latency with no packets
-- `Stale Prices` — cannot determine quote age with no packets
-- `Pricing Feeds` — no symbols observed in rolling window
+* `Multicast Feed`: no packets received
+* `Market Data Latency`: cannot measure latency with no packets
+* `Stale Prices`: cannot determine quote age with no packets
+* `Pricing Feeds`: no symbols observed in rolling window
 
 This matches the "pricing integrity failure" framing in
-`runbooks/market_data_gap.md` — a feed outage doesn't just trigger
+`runbooks/market_data_gap.md`. A feed outage does not just trigger
 one alert, it invalidates an entire category of downstream checks.
 
 ## What went well
 
-- Pre-market gate caught the failure immediately and correctly
-  returned BLOCKED rather than a partial/ambiguous status
-- Cascading failures were all attributed correctly — no false
+* Pre-market gate caught the failure immediately and correctly
+  returned BLOCKED rather than a partial or ambiguous status
+* Cascading failures were all attributed correctly, with no false
   "everything is fine" signals from unrelated checks
-- Recovery via `chaos/01_feed_blackout.py recover` was simple and fast
+* Recovery via `chaos/01_feed_blackout.py recover` was simple and fast
 
 ## What did not go well / gaps identified
 
@@ -74,71 +73,72 @@ one alert, it invalidates an entire category of downstream checks.
 During this test run, the pre-market gate also surfaced two
 pre-existing issues:
 
-- **FIX Sessions: FAIL** — the FIX simulator (ports 9876/9877) was
-  not running, likely from a previous session/instance restart.
+* **FIX Sessions: FAIL**. The FIX simulator (ports 9876/9877) was
+  not running, likely from a previous session or instance restart.
   Needs a supervisor process to persist across reboots.
-- **System Resources: FAIL (Disk 85.5%)** — Docker images
+* **System Resources: FAIL (Disk 85.5%)**. Docker images
   (Kafka, Prometheus, Grafana, Node Exporter, renderer) are consuming
   significant disk on a t3.micro. Needs `docker system prune` and
   monitoring of disk growth over time.
 
 These were not caused by the chaos test but were caught by the same
-gate, which is itself a useful demonstration of the gate's value —
-it surfaces real operational debt, not just injected failures.
+gate, which is itself a useful demonstration of the gate's value.
+It surfaces real operational debt, not just injected failures.
 
 ## Resolution
 
 Both additional findings were fixed the same day:
 
-- **FIX Sessions:** Moved the FIX simulator from `/tmp` (ephemeral) into
+* **FIX Sessions:** Moved the FIX simulator from `/tmp` (ephemeral) into
   the repo at `fix_protocol/simulator/fix_session_simulator.py`, and
   created a systemd unit (`fix-simulator.service`) with `Restart=always`.
 
-- **Disk usage:** Ran `docker system prune -af`, reducing disk usage
+* **Disk usage:** Ran `docker system prune -af`, reducing disk usage
   from 85.5% to 77.9%.
 
-- **Multicast sender persistence:** Created a systemd unit
+* **Multicast sender persistence:** Created a systemd unit
   (`multicast-sender.service`) with `Restart=always`, addressing
-  action item #1 — the original chaos scenario (sender death) will
+  action item #1. The original chaos scenario (sender death) will
   now self-recover within ~2 seconds without manual intervention.
 
 ### Post-fix verification
-Results   : 10 passed | 0 failed | 1 skipped
 
-MARKET OPEN STATUS : WARNING - SKIPPED CHECKS PRESENT
+Results: 10 passed | 0 failed | 1 skipped
 
-The remaining `SKIP` is `Database` — connection env vars
-(`DB_USER`, `DB_PASSWORD`, `DB_NAME`) are not persisted across
-shell sessions. Tracked as a new action item below.
+MARKET OPEN STATUS: WARNING - SKIPPED CHECKS PRESENT
+
+The remaining `SKIP` is `Database`. Connection environment variables
+(`DB_USER`, `DB_PASSWORD`, `DB_NAME`) are not persisted across shell
+sessions. Tracked as a new action item below.
 
 ## Re-test: Automatic recovery via systemd
 
 After adding `multicast-sender.service` with `Restart=always`,
 the original failure scenario (sender process killed) was re-tested:
 
-- `sudo pkill -f multicast_sender.py` run at 07:29:1x
-- systemd detected the exit and restarted the service automatically
+* `sudo pkill -f multicast_sender.py` run at 07:29:1x
+* systemd detected the exit and restarted the service automatically
   at 07:29:15 (within `RestartSec=2`)
-- No manual `chaos/01_feed_blackout.py recover` step was required
+* No manual `chaos/01_feed_blackout.py recover` step was required
 
 This confirms action item "Add systemd unit for multicast_sender.py
-with Restart=always" closes the original gap: the system now
+with Restart=always" closes the original gap. The system now
 self-heals from this specific failure mode without operator
 intervention. Detection (pre_market check / Prometheus alert) is
-still required to know an incident occurred at all — auto-restart
+still required to know an incident occurred at all. Auto-restart
 reduces MTTR but does not eliminate the need for alerting.
 
 ## Updated action items
 
-- [x] Add systemd unit for `multicast_sender.py` with `Restart=always`
-- [x] Add systemd unit for the FIX simulator
-- [x] Run `docker system prune` — disk 85.5% → 77.9%
-- [ ] Document the `Pricing Feeds` settling-time behavior in
-      `runbooks/market_data_gap.md` verification section
-- [ ] Future chaos test: feed blackout while exchange/matching engine
-      is actively processing orders — verify state reconciliation
-- [ ] Add `EnvironmentFile` for database credentials so `Database`
-      check doesn't SKIP on fresh sessions
-- [ ] Re-test chaos 01 — with `multicast-sender.service` now active,
-      `pkill -f multicast_sender.py` should self-recover within ~2s
-      without manual `recover`
+* [x] Add systemd unit for `multicast_sender.py` with `Restart=always`
+* [x] Add systemd unit for the FIX simulator
+* [x] Run `docker system prune` (disk 85.5% → 77.9%)
+* [ ] Document the `Pricing Feeds` settling-time behavior in
+  `runbooks/market_data_gap.md` verification section
+* [ ] Future chaos test: feed blackout while exchange/matching engine
+  is actively processing orders, verify state reconciliation
+* [ ] Add `EnvironmentFile` for database credentials so `Database`
+  check does not SKIP on fresh sessions
+* [ ] Re-test chaos 01. With `multicast-sender.service` now active,
+  `pkill -f multicast_sender.py` should self-recover within ~2s
+  without manual `recover`
