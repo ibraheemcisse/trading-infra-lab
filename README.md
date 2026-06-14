@@ -1,5 +1,11 @@
 # trading-infra-lab
 
+---
+## Architecture
+
+![arch.png)
+---
+
 A single-host trading systems lab that recreates core components of electronic trading infrastructure: market data distribution, FIX order flow, a matching engine with pre-trade risk controls, observability, and controlled failure injection.
 
 This system is intentionally operated under constrained resources and real failure conditions to study production behavior, not just build features.
