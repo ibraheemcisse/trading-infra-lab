@@ -89,4 +89,4 @@ printf "%-30s %s -> %s\n" "net.core.busy_poll"       "$OLD_BUSY_POLL" "$(get_val
 printf "%-30s %s -> %s\n" "net.ipv4.tcp_low_latency" "$OLD_TCP_LOW"   "$(get_value net.ipv4.tcp_low_latency)"
 printf "%-30s %s -> %s\n" "irqbalance"               "$OLD_IRQ"       "$IRQ_ACTION"
 echo
-echo "Tuning complete. Run tuned_test.py to measure impact."
+echo "Tuning complete. Run tuned_test.py to measure impact"  
