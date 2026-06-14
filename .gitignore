@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Latency benchmark results (regenerated per-run, not source)
+baseline_results.json
+latency/baseline_results.json
+latency/tuned_results.json
+
+# Risk audit logs (runtime data, not source)
+exchange/logs/*.log
+
+# Local env / secrets (never commit credentials)
+.env
+*.env

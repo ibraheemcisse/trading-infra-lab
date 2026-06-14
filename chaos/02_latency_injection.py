@@ -1,92 +1,69 @@
 #!/usr/bin/env python3
-
 """
-Chaos Test 02: Latency Injection
+Chaos Test 02: Latency Injection (application-level)
 
-Injects artificial network latency using tc netem.
+The original approach (tc netem on ens5/lo) had no measurable effect
+on same-host multicast traffic - see postmortem 002. IP_MULTICAST_LOOP
+delivers packets to local subscribers via an internal kernel path that
+bypasses the qdisc on both interfaces.
+
+This version injects delay inside feed_monitor.py itself, via a
+control file. feed_monitor sleeps for the configured number of
+milliseconds before processing each packet - simulating a slow
+consumer (GC pause, CPU contention, blocked I/O), which is arguably
+a more common real-world cause of degraded latency than network delay.
 
 Usage:
-
-    python3 chaos/02_latency_injection.py inject
+    python3 chaos/02_latency_injection.py inject [delay_ms]
     python3 chaos/02_latency_injection.py recover
     python3 chaos/02_latency_injection.py status
+
+Expected impact:
+    feed_latency_ms increases to ~delay_ms within a few seconds
+    pre_market checks.py -> Market Data Latency FAILs if delay
+    exceeds latency_fail_ms (100ms)
+
+Related runbook: runbooks/high_latency.md
+Related postmortem: docs/postmortems/002-latency-injection.md
 """
 
-import argparse
-import subprocess
 import sys
 
-INTERFACE = "ens5"
-DELAY_MS = 250
+CONTROL_FILE = "/tmp/feed_monitor_delay_ms"
+DEFAULT_DELAY_MS = 250
 
 
-def run(cmd: str):
-    print(f"$ {cmd}")
-    result = subprocess.run(
-        cmd,
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.stdout:
-        print(result.stdout.strip())
-
-    if result.stderr:
-        print(result.stderr.strip())
-
-    return result.returncode
-
-
-def inject():
-    print(f"Injecting {DELAY_MS}ms latency on {INTERFACE}")
-
-    rc = run(
-        f"sudo tc qdisc replace dev {INTERFACE} root "
-        f"netem delay {DELAY_MS}ms"
-    )
-
-    sys.exit(rc)
+def inject(delay_ms=DEFAULT_DELAY_MS):
+    with open(CONTROL_FILE, "w") as f:
+        f.write(str(delay_ms))
+    print(f"Injected {delay_ms}ms application-level delay into feed_monitor.py")
+    print(f"feed_latency_ms should rise to ~{delay_ms}ms within a few seconds")
 
 
 def recover():
-    print(f"Removing netem rules from {INTERFACE}")
-
-    rc = run(
-        f"sudo tc qdisc del dev {INTERFACE} root"
-    )
-
-    # tc returns non-zero if no qdisc exists
-    sys.exit(0)
+    with open(CONTROL_FILE, "w") as f:
+        f.write("0")
+    print("Removed injected delay (set to 0ms)")
 
 
 def status():
-    rc = run(
-        f"sudo tc qdisc show dev {INTERFACE}"
-    )
-
-    sys.exit(rc)
-
-
-def main():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "action",
-        choices=["inject", "recover", "status"]
-    )
-
-    args = parser.parse_args()
-
-    if args.action == "inject":
-        inject()
-
-    elif args.action == "recover":
-        recover()
-
-    else:
-        status()
+    try:
+        with open(CONTROL_FILE) as f:
+            value = f.read().strip()
+        print(f"Current injected delay: {value}ms")
+    except FileNotFoundError:
+        print("No delay injected (control file does not exist)")
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2 or sys.argv[1] not in ("inject", "recover", "status"):
+        print("Usage: python3 02_latency_injection.py [inject|recover|status] [delay_ms]")
+        sys.exit(1)
+
+    if sys.argv[1] == "inject":
+        delay = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_DELAY_MS
+        inject(delay)
+    elif sys.argv[1] == "recover":
+        recover()
+    else:
+        status()
