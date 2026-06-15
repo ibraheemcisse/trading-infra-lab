@@ -40,7 +40,8 @@ The goal is not correctness in isolation, but **operational behavior under stres
 
 ## Architecture (simplified)
 
-![Trading Infra Lab Architecture simplified](./docs/trading infra mechanism.jpg)
+![Trading Infra Lab Architecture simplified](./docs/trading-infra-mechanism.jpg)
+
 
 All components run on a single Ubuntu 22.04 instance.
 
@@ -178,5 +179,5 @@ cd exchange && python3 test_exchange.py
 
 This is an active experimental system. Components are continuously being tested, broken, and improved.
 
-The primary output of this project is not uptime — it is understanding failure modes in trading infrastructure.
+The primary output of this project is not uptime it is understanding failure modes in trading infrastructure.
 
