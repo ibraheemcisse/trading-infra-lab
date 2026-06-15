@@ -90,3 +90,9 @@ python3 pre_market/checks.py
 
 ---
 
+## Action Items
+
+- [x] Upsize to t3.small
+- [ ] Verify all services restart cleanly post-upsize
+- [ ] Resume queue item 2 (trade persister end-to-end test with Kafka constrained heap)
+- [ ] Update README capacity expectations: "Requires t3.small or larger; t3.micro insufficient for full stack
