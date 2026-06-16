@@ -2,36 +2,38 @@
 
 ![Trading Infra Lab Architecture](./docs/arch.png)
 
-A single-host trading systems laboratory that recreates the critical components of electronic trading infrastructure:
+A single-host trading systems laboratory that recreates the critical execution path of an electronic trading platform:
 
-* Market data distribution
+* Market data distribution (UDP multicast)
 * FIX order entry
-* Pre-trade risk controls
+* Pre-trade risk validation
 * Matching engine execution
-* Event streaming
-* Persistence
+* Event streaming with Kafka
+* Trade persistence
 * Monitoring and alerting
 * Failure injection and recovery testing
 
-The system runs on a single Ubuntu 22.04 host and is intentionally operated under constrained resources to study operational behavior, failure modes, observability gaps, and recovery characteristics.
+The entire system runs on a single Ubuntu host and is intentionally operated under constrained resources to study reliability, observability, and operational behavior under failure conditions.
 
-The objective is not to build a feature-complete exchange. The objective is to understand how trading infrastructure behaves under real operational stress.
+The goal is not to build a feature-rich exchange.
+
+The goal is to understand how trading infrastructure behaves when components fail.
 
 ---
 
-# Overview
+# Why This Project Exists
 
-Most trading-system projects demonstrate happy-path functionality. This lab focuses on what happens when things fail.
+Many exchange simulators demonstrate order matching and protocol handling.
 
-The environment combines market data, order flow, risk validation, matching, persistence, monitoring, and chaos testing into a single deployable system. Components are intentionally broken, restarted, degraded, and audited to validate recovery behavior and expose hidden assumptions.
+Far fewer explore operational questions:
 
-Key questions explored:
+* What happens when a critical service crashes?
+* How quickly is the failure detected?
+* Which monitoring signals become useful during incidents?
+* Which failures are visible and which remain silent?
+* Does the system recover correctly?
 
-* What fails first under resource pressure?
-* Which failures are immediately visible versus silent?
-* How effective are restart policies and health checks?
-* How quickly can the system detect and recover from degraded conditions?
-* Which monitoring signals are actually useful during incidents?
+This lab was built to answer those questions through controlled experimentation, measurement, and postmortem analysis.
 
 ---
 
@@ -39,53 +41,75 @@ Key questions explored:
 
 ![Trading Infra Lab Mechanism](./docs/trading-infra-mechanism.jpg)
 
-## High-Level Flow
+## System Components
 
 ```text
-                    Market Data Feed
-                    (UDP Multicast)
-                            |
-                            v
-                    Feed Monitor
-                            |
-                            v
-                 Prometheus / Grafana
+                        +------------------+
+                        |  Market Data     |
+                        | UDP Multicast    |
+                        +--------+---------+
+                                 |
+                                 v
+                        +------------------+
+                        |  Feed Monitor    |
+                        |  Prometheus      |
+                        +--------+---------+
+                                 |
+                                 v
+                             Grafana
 
 
  FIX Client
-     |
-     v
-+------------+
-| Risk Gate  |
-+------------+
-     |
-     v
-+------------+
-| Matching   |
-| Engine     |
-+------------+
-     |
-     v
-+------------+
-| Kafka      |
-+------------+
-     |
-     v
-+------------+
-| PostgreSQL |
-+------------+
+      |
+      v
++-------------+
+| Risk Gate   |
++-------------+
+      |
+      v
++-------------+
+| Matching    |
+| Engine      |
++-------------+
+      |
+      v
++-------------+
+| Kafka       |
++-------------+
+      |
+      v
++-------------+
+| PostgreSQL  |
++-------------+
 ```
 
-## Core Data Path
+## Trading Flow
 
-1. Market data is distributed over UDP multicast.
-2. Feed Monitor validates packet flow, latency, and sequence continuity.
-3. FIX clients submit orders.
-4. Orders pass through pre-trade risk validation.
-5. Approved orders enter the matching engine.
-6. Execution events are published to Kafka.
-7. Trade records are persisted to PostgreSQL.
-8. Prometheus and Grafana provide operational visibility across the stack.
+```text
+FIX Order
+    ↓
+Risk Validation
+    ↓
+Matching Engine
+    ↓
+Execution Event
+    ↓
+Kafka
+    ↓
+Persistence
+```
+
+## Monitoring Flow
+
+```text
+UDP Market Data
+        ↓
+Feed Monitor
+        ↓
+Prometheus
+        ↓
+Grafana
+```
 
 ---
 
@@ -106,8 +130,7 @@ trading-infra-lab/
 │   └── feed_monitor.py
 │
 ├── fix/
-│   ├── simulator.py
-│   └── sessions/
+│   └── simulator.py
 │
 ├── chaos/
 │   ├── 01_feed_blackout.py
@@ -132,28 +155,27 @@ trading-infra-lab/
 
 ---
 
-# Components
+# Core Components
 
 ## Market Data Feed
 
-A multicast-based market data simulator designed to reproduce feed distribution and monitoring patterns.
+Simulated market data distributed over UDP multicast.
 
 Features:
 
-* UDP multicast transport
 * Sequence tracking
 * Gap detection
-* Latency measurement
-* Multiple instrument support
+* Feed latency measurement
+* Multi-symbol support
 
-Current symbols:
+Current instruments:
 
 * AAPL
 * MSFT
 * GOOG
 * TSLA
 
-Example update:
+Example message:
 
 ```json
 {
@@ -166,19 +188,18 @@ Example update:
 
 ---
 
-## FIX Protocol Layer
+## FIX Layer
 
-Order entry is simulated using FIX 4.4 sessions.
+Simplified FIX 4.4 order-entry environment.
 
-Capabilities:
+Supported workflows:
 
-* NewOrderSingle handling
-* ExecutionReport generation
-* Session persistence
+* NewOrderSingle
+* ExecutionReport
+* Session simulation
 * Auto-recovery via systemd
-* Sender/receiver simulation
 
-Ports:
+Services:
 
 ```text
 9876 - FIX sender
@@ -189,9 +210,9 @@ Ports:
 
 ## Pre-Trade Risk Gate
 
-All orders are validated before reaching the matching engine.
+All orders are validated before entering the matching engine.
 
-Checks include:
+Implemented controls:
 
 * Kill switch
 * Maximum order size
@@ -199,46 +220,39 @@ Checks include:
 * Position limits
 * Audit logging
 
-Example decision flow:
+Decision flow:
 
 ```text
-New Order
-    |
-    v
-Risk Validation
-    |
-    +--> Reject
-    |
-    +--> Approve
-            |
-            v
-     Matching Engine
+Order
+   ↓
+Risk Checks
+   ↓
+Approved / Rejected
 ```
 
 ---
 
 ## Matching Engine
 
-A simplified exchange matching engine implementing price-time priority.
+Price-time priority matching engine.
 
-Features:
+Capabilities:
 
 * Limit orders
 * Partial fills
 * Deterministic execution
 * O(1) order cancellation lookup
-* Per-symbol order books
 
-Supported functionality:
+Supported operations:
 
-* New orders
-* Cancel orders
-* Partial executions
-* Full executions
+* Submit order
+* Cancel order
+* Partial execution
+* Full execution
 
 ---
 
-## Kafka Event Stream
+## Kafka Event Pipeline
 
 Trade lifecycle events are published to Kafka.
 
@@ -250,24 +264,19 @@ EXECUTION_REPORT
 TRADE
 ```
 
-Example flow:
+Event flow:
 
 ```text
-Order Submitted
-       |
-       v
- NEW_ORDER
-       |
-       v
+Order
+  ↓
+NEW_ORDER
+  ↓
 Matching Engine
-       |
-       v
+  ↓
 EXECUTION_REPORT
-       |
-       v
+  ↓
 TRADE
-       |
-       v
+  ↓
 PostgreSQL
 ```
 
@@ -279,91 +288,44 @@ trade_persister.py
 
 ---
 
-## Observability
+# Failure Validation Workflow
 
-### Feed Monitor
+The most important part of this project is not the matching engine.
 
-Prometheus exporter exposing feed health and latency metrics.
-
-Metrics:
+It is the validation loop used to test operational resilience.
 
 ```text
-feed_alive
-feed_latency_ms
-feed_packets_total
-feed_dropped_total
-feed_gap_events_total
-feed_symbols_active
+Chaos Injection
+       ↓
+System Failure
+       ↓
+Observability
+       ↓
+Gate Detection
+       ↓
+Postmortem
+       ↓
+Remediation
 ```
 
-### Grafana Dashboards
-
-Infrastructure dashboard:
-
-* CPU utilization
-* Memory utilization
-* Disk usage
-* Load average
-
-Market data dashboard:
-
-* Feed latency
-* Packet throughput
-* Sequence gaps
-* Feed staleness
+Every completed scenario follows this process.
 
 ---
 
-## Pre-Market Health Gate
+## 1. Chaos Injection
 
-A consolidated operational readiness check executed before trading activity.
+Failures are intentionally introduced into running services.
 
-Validation categories:
+Examples:
 
-* Feed availability
-* FIX session status
-* Database connectivity
-* Queue health
-* Resource utilization
-* Error thresholds
+* Feed blackout
+* Consumer crash
+* Kafka broker stop
+* Latency injection
+* Stale market data
+* Resource exhaustion
 
-Possible outcomes:
-
-```text
-APPROVED
-WARNING
-BLOCKED
-```
-
----
-
-# Chaos Engineering
-
-A primary goal of the lab is validating behavior during failure conditions.
-
-## Implemented Scenarios
-
-| Scenario                | Status   |
-| ----------------------- | -------- |
-| Feed Blackout           | Complete |
-| Latency Injection       | Complete |
-| Consumer Crash          | Complete |
-| Kafka Broker Stop       | Complete |
-| Quote Staleness Audit   | Complete |
-| CPU Exhaustion Analysis | Complete |
-
-## Planned Scenarios
-
-| Scenario                    | Status  |
-| --------------------------- | ------- |
-| Risk Kill Switch Validation | Planned |
-| Disk Exhaustion             | Planned |
-| Memory Pressure             | Planned |
-| Service Dependency Failure  | Planned |
-
-## Running a Scenario
-
-Inject failure:
+Trigger via CLI:
 
 ```bash
 python3 chaos/01_feed_blackout.py inject
@@ -375,7 +337,7 @@ Recover:
 python3 chaos/01_feed_blackout.py recover
 ```
 
-Web control panel:
+Or use the web control panel:
 
 ```bash
 python3 chaos/control_panel.py
@@ -384,6 +346,152 @@ python3 chaos/control_panel.py
 ```text
 http://<server-ip>:8080
 ```
+
+The control panel provides a simple interface for running failure scenarios and recovery actions.
+
+---
+
+## 2. Observability
+
+Prometheus and Grafana provide visibility into system behavior during failures.
+
+Infrastructure metrics:
+
+* CPU utilization
+* Memory usage
+* Disk usage
+* Load average
+
+Market data metrics:
+
+* Feed availability
+* Feed latency
+* Packet throughput
+* Sequence gaps
+* Symbol activity
+
+Feed monitor metrics:
+
+```text
+feed_alive
+feed_latency_ms
+feed_packets_total
+feed_dropped_total
+feed_gap_events_total
+feed_symbols_active
+```
+
+The objective is to verify that failures produce measurable signals.
+
+Example:
+
+```text
+Feed Blackout
+      ↓
+feed_alive = 0
+      ↓
+Grafana reflects outage
+```
+
+---
+
+## 3. Pre-Market Gate
+
+The pre-market gate acts as a trading readiness check.
+
+It evaluates:
+
+* Feed health
+* FIX session status
+* Database connectivity
+* Queue depth
+* Resource utilization
+* Error thresholds
+
+Possible outcomes:
+
+```text
+APPROVED
+WARNING
+BLOCKED
+```
+
+A successful chaos test demonstrates that the gate can identify degraded conditions and prevent trading when necessary.
+
+---
+
+## 4. Postmortems
+
+Every completed scenario generates a documented incident review.
+
+Each report includes:
+
+* Timeline
+* Root cause
+* Impact
+* Detection
+* Recovery
+* Corrective actions
+
+Postmortems are stored in:
+
+```text
+docs/postmortems/
+```
+
+The objective is continuous improvement rather than simply restoring service.
+
+---
+
+# Example Scenario: Consumer Crash
+
+Scenario:
+
+```text
+Kill trade_persister
+```
+
+Observed behavior:
+
+```text
+Consumer Stops
+        ↓
+Market Data Continues
+        ↓
+Feed Latency Unchanged
+        ↓
+Dashboard Shows No Feed Impact
+        ↓
+Gate Detects Failure
+        ↓
+Trading Blocked
+```
+
+Detection latency:
+
+```text
+4.1 seconds
+```
+
+Finding:
+
+The persistence layer was successfully isolated from the market-data path. A consumer failure did not impact feed processing, validating architectural separation between execution and persistence components.
+
+---
+
+# Chaos Test Matrix
+
+| Scenario              | Status   | Result                                     |
+| --------------------- | -------- | ------------------------------------------ |
+| Feed Blackout         | Complete | Detection validated                        |
+| Latency Injection     | Complete | Monitoring blind spot identified and fixed |
+| Consumer Crash        | Complete | Architectural isolation confirmed          |
+| Kafka Broker Stop     | Complete | Feed remains independent of persistence    |
+| Quote Staleness Audit | Complete | Validation logic verified                  |
+| Risk Kill Switch      | Planned  | Pending                                    |
+| Disk Exhaustion       | Planned  | Pending                                    |
+| Memory Pressure       | Planned  | Pending                                    |
+| Dependency Failure    | Planned  | Pending                                    |
 
 ---
 
@@ -402,9 +510,11 @@ Install dependencies:
 pip install kafka-python requests fastapi uvicorn prometheus-client
 ```
 
+---
+
 ## Start Services
 
-Market data and FIX services:
+Market data and FIX:
 
 ```bash
 sudo systemctl start multicast-sender
@@ -412,19 +522,23 @@ sudo systemctl start feed-monitor
 sudo systemctl start fix-simulator
 ```
 
-Infrastructure services:
+Infrastructure:
 
 ```bash
 docker compose up -d
 ```
 
+---
+
 ## Verify System Health
+
+Run the pre-market gate:
 
 ```bash
 python3 pre_market/checks.py
 ```
 
-Expected output:
+Expected result:
 
 ```text
 APPROVED
@@ -432,7 +546,7 @@ APPROVED
 
 ---
 
-# Testing
+## Run Tests
 
 Matching engine tests:
 
@@ -449,65 +563,35 @@ Expected:
 
 ---
 
-# Operational Findings
+# Key Findings
 
-Several recurring patterns emerged during testing and incident analysis.
+## CPU Starvation Can Be Worse Than Process Failure
 
-### CPU Starvation Is More Dangerous Than Process Failure
+On burstable instances, CPU exhaustion caused broader degradation than isolated service crashes.
 
-On small burstable instances, CPU credit exhaustion caused broader degradation than isolated service crashes.
+## Monitoring Must Be Independently Verified
 
-### Monitoring Requires Independent Validation
+Single-point measurements created blind spots during latency investigations.
 
-Single-point measurements produced blind spots during latency investigations. Independent measurements provided more reliable operational signals.
+## Local Networking Behaves Differently
 
-### Same-Host Networking Behaves Differently
+Multicast traffic on localhost invalidated assumptions used during packet-loss testing.
 
-Local multicast traffic invalidated assumptions made during packet-loss testing and required adjustments to testing methodology.
+## Restart Policies Can Amplify Incidents
 
-### Restart Policies Can Amplify Failures
+Aggressive restart behavior without resource controls increased contention and accelerated cascading failures.
 
-Aggressive restart behavior without resource constraints increased contention and accelerated cascading failures.
+## Small Configuration Errors Have Large Effects
 
-### Small Configuration Errors Scale Quickly
-
-Permissions, service definitions, environment variables, and dependency mismatches frequently produced disproportionate operational impact.
-
----
-
-# Postmortems
-
-Documented incident investigations are available under:
-
-```text
-docs/postmortems/
-```
-
-Current postmortems include:
-
-* Feed blackout recovery
-* Latency injection analysis
-* CPU exhaustion investigation
-* Memory pressure investigation
-* Kafka dependency isolation validation
-* Quote staleness audit
-
-Each postmortem includes:
-
-* Timeline
-* Root cause
-* Impact
-* Detection
-* Resolution
-* Follow-up actions
+Service definitions, permissions, environment variables, and dependency mismatches repeatedly produced disproportionate operational impact.
 
 ---
 
 # Roadmap
 
 * [ ] Complete remaining chaos scenarios
-* [ ] Linux networking deep dive
-* [ ] Resource isolation experiments (cgroups)
+* [ ] Linux networking deep-dive
+* [ ] cgroups and resource isolation experiments
 * [ ] Additional exchange simulation workloads
 * [ ] Video walkthrough
 * [ ] Public open-source release
@@ -518,7 +602,7 @@ Each postmortem includes:
 
 Active experimental system.
 
-The project is continuously tested, broken, repaired, and documented. The primary output is not uptime—it is operational understanding of trading infrastructure under failure conditions.
+Components are continuously tested, intentionally broken, recovered, and documented. The primary output is operational understanding of trading infrastructure under failure conditions.
 
 ---
 
@@ -526,6 +610,4 @@ The project is continuously tested, broken, repaired, and documented. The primar
 
 **Ibrahim Cisse**
 
-Infrastructure, platform, and trading systems engineering.
-
-Production experience across fintech and exchange environments, with a focus on reliability, observability, and operational resilience.
+Infrastructure, reliability, and trading-systems engineering focused on observability, operational resilience, and production systems.
