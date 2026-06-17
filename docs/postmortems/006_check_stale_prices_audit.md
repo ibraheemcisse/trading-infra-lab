@@ -8,7 +8,7 @@
 
 check_stale_prices measures quote age by receiving one multicast packet and comparing timestamp to now.
 
-feed_monitor exports: latency_ms, packets, gaps, alive status — but **NOT quote age**.
+feed_monitor exports: latency_ms, packets, gaps, alive status but **NOT quote age**.
 
 ## Conclusion
 
