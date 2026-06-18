@@ -30,3 +30,14 @@ Trade Persistence
 **SLO:** 99.99% of trades persisted
 
 **Error Budget:** We can fail 0.01% of the time (8.6 minutes/month)
+
+## Prometheus Queries
+
+### Feed Freshness
+histogram_quantile(0.95, rate(feed_update_latency_seconds_bucket[5m]))
+
+### Order Gateway Latency
+histogram_quantile(0.99, rate(order_acceptance_latency_seconds_bucket[5m]))
+
+### Trade Persistence Success
+rate(trades_persisted_total[5m]) / rate(trades_executed_total[5m])
