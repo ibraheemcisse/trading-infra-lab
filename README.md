@@ -2,30 +2,30 @@
 
 ![Trading Infra Lab Architecture](./docs/arch.png)
 
-A single-host trading systems laboratory that recreates the critical infrastructure found in electronic trading environments:
+A production-inspired trading infrastructure laboratory for studying latency, observability, and distributed systems under load.
 
-* Market data distribution (UDP multicast)
-* FIX order entry
-* Pre-trade risk controls
-* Matching engine execution
-* Kafka event streaming
-* Trade persistence
-* Monitoring and alerting
-* Chaos engineering and recovery testing
+This project recreates the core infrastructure found in modern electronic trading systems—including market data ingestion, FIX order routing, a matching engine, Kafka event streaming, PostgreSQL persistence, and full-stack observability—to investigate how latency emerges, how systems behave under stress, and where real bottlenecks occur.
 
-The system runs on a single Ubuntu host and is intentionally operated under constrained resources to study reliability, observability, failure detection, and recovery behavior.
-
-The goal is not to build a feature-complete exchange.
-
-The goal is to understand how trading infrastructure behaves when things break.
+Rather than building a feature-complete exchange, this lab focuses on **performance engineering**: measuring system behavior, validating assumptions with data, and documenting operational findings.
 
 ---
 
-# Architecture
+## Highlights
 
-![Trading Infra Lab Mechanism](./docs/trading-infra-mechanism.jpg)
+- Kubernetes-ready trading infrastructure
+- FIX 4.4 order gateway
+- Price-time priority matching engine
+- Kafka event streaming pipeline
+- PostgreSQL trade persistence
+- Prometheus & Grafana observability
+- Chaos engineering and failure injection
+- SLI/SLO monitoring
+- Queue-depth and latency analysis
+- Performance measurement methodology
 
-## System Flow
+---
+
+## System Overview
 
 ```text
                     Market Data Feed
@@ -64,396 +64,14 @@ The goal is to understand how trading infrastructure behaves when things break.
 
 ---
 
-# Chaos Control Panel
+## Quick Start
 
-The lab includes a lightweight web interface for running failure scenarios and recovery workflows.
+### Prerequisites
 
-![Chaos Control Panel](./docs/chaos%20dash%20recover.png)
-
-The control panel provides:
-
-* One-click failure injection
-* Recovery actions
-* Live execution logs
-* Repeatable operational testing
-* Demo-friendly chaos execution
-
-Supported scenarios:
-
-| Scenario | Description       |
-| -------- | ----------------- |
-| Chaos 01 | Feed blackout     |
-| Chaos 02 | Latency injection |
-| Chaos 04 | Consumer crash    |
-| Chaos 05 | Kafka broker stop |
-
-Example:
-
-```text
-Inject Failure
-      ↓
-System Degrades
-      ↓
-Metrics Change
-      ↓
-Gate Detects Issue
-      ↓
-Trading Blocked
-      ↓
-Recovery Triggered
-      ↓
-System Returns To Normal
-```
-
-The control panel is intentionally simple. Its purpose is to make operational testing repeatable without manually executing every scenario from the command line.
-
----
-
-# Core Components
-
-## Market Data Feed
-
-A multicast-based market data simulator used to reproduce feed distribution and monitoring patterns.
-
-Features:
-
-* UDP multicast transport
-* Sequence tracking
-* Gap detection
-* Feed latency measurement
-* Multi-symbol publishing
-
-Current instruments:
-
-* AAPL
-* MSFT
-* GOOG
-* TSLA
-
-Example update:
-
-```json
-{
-  "symbol": "AAPL",
-  "price": 211.42,
-  "seq": 10421,
-  "timestamp": 1750012345.182
-}
-```
-
----
-
-## FIX Protocol Layer
-
-Simplified FIX 4.4 order entry environment.
-
-Capabilities:
-
-* NewOrderSingle
-* ExecutionReport
-* Session simulation
-* Auto-restart via systemd
-
-Ports:
-
-```text
-9876 - FIX sender
-9877 - FIX receiver
-```
-
----
-
-## Pre-Trade Risk Gate
-
-Orders are validated before entering the matching engine.
-
-Implemented controls:
-
-* Kill switch
-* Maximum order size
-* Fat-finger protection
-* Position limits
-* Audit logging
-
-Validation flow:
-
-```text
-New Order
-     ↓
-Risk Checks
-     ↓
-Approved / Rejected
-```
-
----
-
-## Matching Engine
-
-Price-time priority matching engine.
-
-Features:
-
-* Limit orders
-* Partial fills
-* Deterministic execution
-* O(1) cancellation lookup
-* Per-symbol order books
-
-Supported actions:
-
-* Submit order
-* Cancel order
-* Partial execution
-* Full execution
-
----
-
-## Kafka Event Pipeline
-
-Trade lifecycle events are published to Kafka.
-
-Topics:
-
-```text
-NEW_ORDER
-EXECUTION_REPORT
-TRADE
-```
-
-Pipeline:
-
-```text
-Order
-  ↓
-NEW_ORDER
-  ↓
-Matching Engine
-  ↓
-EXECUTION_REPORT
-  ↓
-TRADE
-  ↓
-PostgreSQL
-```
-
-Consumer:
-
-```text
-trade_persister.py
-```
-
----
-
-# Operational Validation Loop
-
-The most important aspect of this project is not the matching engine.
-
-It is the closed-loop process used to validate system behavior during failure conditions.
-
-```text
-Chaos Injection
-       ↓
-System Failure
-       ↓
-Observability
-       ↓
-Gate Detection
-       ↓
-Postmortem
-       ↓
-Remediation
-```
-
-Every completed scenario follows this workflow.
-
----
-
-## 1. Chaos Injection
-
-Failures are intentionally introduced into running services.
-
-Examples:
-
-* Feed blackout
-* Consumer crash
-* Kafka broker stop
-* Latency injection
-* Stale market data
-* Resource pressure
-
-CLI execution:
-
-```bash
-python3 chaos/01_feed_blackout.py inject
-python3 chaos/01_feed_blackout.py recover
-```
-
-Or via the control panel:
-
-```bash
-python3 chaos/control_panel.py
-```
-
-```text
-http://<server-ip>:8080
-```
-
----
-
-## 2. Observability
-
-Prometheus and Grafana provide visibility into system behavior during failures.
-
-Infrastructure metrics:
-
-* CPU utilization
-* Memory usage
-* Disk usage
-* Load average
-
-Feed metrics:
-
-* Feed availability
-* Feed latency
-* Packet throughput
-* Sequence gaps
-* Symbol activity
-
-Feed monitor metrics:
-
-```text
-feed_alive
-feed_latency_ms
-feed_packets_total
-feed_dropped_total
-feed_gap_events_total
-feed_symbols_active
-```
-
-The objective is not simply collecting metrics.
-
-The objective is verifying that failures are visible and measurable.
-
-Example:
-
-```text
-Feed Blackout
-      ↓
-feed_alive = 0
-      ↓
-Dashboard reflects outage
-```
-
----
-
-## 3. Pre-Market Gate
-
-The pre-market gate acts as a trading readiness check.
-
-Validation categories:
-
-* Feed health
-* FIX availability
-* Database connectivity
-* Queue depth
-* Resource utilization
-* Error thresholds
-
-Possible outcomes:
-
-```text
-APPROVED
-WARNING
-BLOCKED
-```
-
-A successful chaos test demonstrates that degraded conditions are detected before trading activity continues.
-
----
-
-## 4. Postmortems
-
-Every completed scenario generates a documented incident review.
-
-Each report includes:
-
-* Timeline
-* Root cause
-* Detection
-* Impact
-* Recovery
-* Corrective actions
-
-Location:
-
-```text
-docs/postmortems/
-```
-
-The objective is continuous improvement rather than simple recovery.
-
----
-
-# Example Scenario: Consumer Crash
-
-Scenario:
-
-```text
-Kill trade_persister
-```
-
-Observed behavior:
-
-```text
-Consumer Stops
-        ↓
-Market Data Continues
-        ↓
-Feed Metrics Unchanged
-        ↓
-Dashboard Shows No Feed Impact
-        ↓
-Gate Detects Failure
-        ↓
-Trading Blocked
-```
-
-Detection latency:
-
-```text
-4.1 seconds
-```
-
-Finding:
-
-The persistence layer remained isolated from the market data path. A consumer failure did not impact feed processing or latency, validating architectural separation between execution and persistence.
-
----
-
-# Chaos Test Matrix
-
-| Scenario              | Status   | Finding                                        |
-| --------------------- | -------- | ---------------------------------------------- |
-| Feed Blackout         | Complete | Detection validated                            |
-| Latency Injection     | Complete | Monitoring blind spot identified and corrected |
-| Consumer Crash        | Complete | Architectural isolation confirmed              |
-| Kafka Broker Stop     | Complete | Feed path independent from persistence         |
-| Quote Staleness Audit | Complete | Validation logic verified                      |
-| Risk Kill Switch      | Planned  | Pending                                        |
-| Disk Exhaustion       | Planned  | Pending                                        |
-| Memory Pressure       | Planned  | Pending                                        |
-| Dependency Failure    | Planned  | Pending                                        |
-
----
-
-# Quick Start
-
-## Prerequisites
-
-* Ubuntu 22.04
-* Python 3.10+
-* Docker
-* systemd
+- Ubuntu 22.04
+- Python 3.10+
+- Docker
+- systemd
 
 Install dependencies:
 
@@ -461,29 +79,16 @@ Install dependencies:
 pip install kafka-python requests fastapi uvicorn prometheus-client
 ```
 
----
-
-## Start Services
-
-Core services:
+### Start Services
 
 ```bash
 sudo systemctl start multicast-sender
 sudo systemctl start feed-monitor
 sudo systemctl start fix-simulator
-```
-
-Infrastructure:
-
-```bash
 docker compose up -d
 ```
 
----
-
-## Verify System Health
-
-Run the pre-market gate:
+### Verify System Health
 
 ```bash
 python3 pre_market/checks.py
@@ -495,68 +100,341 @@ Expected output:
 APPROVED
 ```
 
----
-
-## Run Exchange Tests
+### Run Load Test
 
 ```bash
 cd exchange
-python3 test_exchange.py
+
+python3 << 'EOF'
+from matching_engine import MatchingEngine
+from order_book import OrderBook
+from order_types import Order, Side, OrderType
+from datetime import datetime, timezone
+from uuid import uuid4
+import statistics
+import time
+
+order_book = OrderBook()
+matcher = MatchingEngine(order_book)
+
+for rate in [100, 500, 1000]:
+    latencies = []
+
+    for i in range(rate * 2):
+        order = Order(
+            order_id=str(uuid4()),
+            symbol="AAPL",
+            side=Side.BUY if i % 2 == 0 else Side.SELL,
+            quantity=100,
+            price=150 + (i % 10),
+            order_type=OrderType.LIMIT,
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        start = time.perf_counter()
+        matcher.process_order(order)
+        elapsed = (time.perf_counter() - start) * 1_000_000
+        latencies.append(elapsed)
+
+        time.sleep(1 / rate)
+
+    p50 = statistics.quantiles(latencies, n=100)[49]
+    p99 = statistics.quantiles(latencies, n=100)[98]
+
+    print(f"{rate} orders/sec | P50={p50:.2f}µs | P99={p99:.2f}µs")
+EOF
 ```
 
-Expected:
+### Grafana
+
+```
+http://<server-ip>:3000
+```
+
+Default credentials:
+
+```
+admin / admin
+```
+
+---
+
+## Purpose
+
+Most open-source trading projects focus on implementing exchange functionality.
+
+This laboratory focuses on understanding **why systems slow down**.
+
+Every experiment follows the same engineering process:
+
+1. Measure a baseline.
+2. Apply controlled load.
+3. Observe system behavior.
+4. Identify the real bottleneck.
+5. Validate the improvement.
+6. Document the findings.
+
+---
+
+## Technology Stack
+
+| Area | Technology |
+|------|------------|
+| Language | Python |
+| Messaging | Kafka |
+| Database | PostgreSQL |
+| Protocol | FIX 4.4 |
+| Monitoring | Prometheus |
+| Dashboards | Grafana |
+| Containers | Docker |
+| Infrastructure | Linux / systemd |
+| Performance | Prometheus Histograms |
+| Testing | Chaos Engineering |
+
+---
+
+## Core Components
+
+### Market Data Feed
+
+A UDP multicast simulator that reproduces market data distribution patterns.
+
+**Features**
+
+- Sequence tracking and gap detection
+- Feed latency measurement
+- Multi-symbol publishing
+- Feed health monitoring
+
+---
+
+### FIX Gateway
+
+A simplified FIX 4.4 environment for order submission and execution reporting.
+
+**Features**
+
+- NewOrderSingle messages
+- ExecutionReport handling
+- Session simulation
+- Automatic reconnect
+- Sender (9876) / Receiver (9877)
+
+---
+
+### Pre-Trade Risk Gate
+
+A validation layer protecting the matching engine before order execution.
+
+**Controls**
+
+- Kill switch
+- Position limits
+- Maximum order size
+- Fat-finger protection
+- Audit logging
+
+---
+
+### Matching Engine
+
+A deterministic price-time priority matching engine designed for latency analysis.
+
+**Features**
+
+- Limit orders
+- Partial fills
+- O(1) order cancellation
+- Per-symbol order books
+- Prometheus instrumentation
+
+---
+
+### Kafka Event Pipeline
+
+Trade lifecycle events are streamed through Kafka.
+
+```
+NEW_ORDER
+      ↓
+EXECUTION_REPORT
+      ↓
+TRADE
+      ↓
+PostgreSQL
+```
+
+---
+
+### Observability
+
+Production-style monitoring with Prometheus and Grafana.
+
+Metrics include:
+
+- Feed latency
+- Order latency
+- Queue depth
+- CPU
+- Memory
+- Disk
+- Alerting
+- System health
+
+---
+
+## Performance Analysis
+
+### SLI / SLO Framework
+
+| Component | SLI | SLO | Error Budget |
+|-----------|-----|-----|--------------|
+| Market Data | Feed Freshness | 99.95% within 50ms | 0.05% |
+| Order Gateway | P99 Latency | <10ms | 0.01% |
+| Trade Persistence | Write Success | 99.99% | 0.01% |
+
+---
+
+### Baseline Latency
 
 ```text
-6/6 tests passing
+P50  4.53 µs
+P95 12.02 µs
+P99 26.71 µs
 ```
 
 ---
 
-# Key Findings
+### Under Load (5,000 orders/sec)
 
-### CPU Starvation Can Be More Dangerous Than Process Failure
+```text
+P50 31.11 µs
+P95 66.07 µs
+P99 76.89 µs
+```
 
-Burstable instances degraded more severely from CPU exhaustion than isolated service crashes.
+**Observation**
 
-### Monitoring Requires Independent Validation
-
-Single-point measurements created blind spots during latency investigations.
-
-### Local Networking Behaves Differently
-
-Localhost multicast traffic invalidated assumptions used during packet-loss testing.
-
-### Restart Policies Can Amplify Failures
-
-Aggressive restart behavior without resource controls increased contention during incidents.
-
-### Small Configuration Errors Can Trigger Large Operational Impact
-
-Permissions, service definitions, dependency mismatches, and environment variables frequently produced disproportionate failures.
+Latency degradation was driven primarily by queue growth rather than CPU saturation.
 
 ---
 
-# Roadmap
+### Queue Depth
 
-* [ ] Complete remaining chaos scenarios
-* [ ] Linux networking deep dive
-* [ ] Resource isolation experiments with cgroups
-* [ ] Additional exchange simulation workloads
-* [ ] Video walkthrough
-* [ ] Public open-source release
+```text
+Orders/sec    Avg Queue    Max Queue    P50
+100               20           40       48.39µs
+500              140          240       50.15µs
+1000             440          640       63.96µs
+```
 
----
-
-# Status
-
-Active experimental system.
-
-Components are continuously tested, intentionally broken, recovered, and documented. The primary output is operational understanding of trading infrastructure under failure conditions.
+Queue depth increased much faster than execution latency, indicating contention before matching rather than inside the matching engine itself.
 
 ---
 
-# Author
+# Operational Validation & Chaos Testing
+
+![Chaos Control Panel](./docs/chaos%20dash%20recover.png)
+
+Repeatable failure injection validates monitoring, recovery procedures, and operational assumptions.
+
+| Scenario | Result |
+|----------|--------|
+| Feed Blackout | Detection latency measured |
+| Network Latency | Monitoring blind spots identified |
+| Consumer Crash | Service isolation verified |
+| Kafka Failure | Feed path remained operational |
+| Quote Staleness | Validation logic confirmed |
+
+Testing workflow:
+
+```text
+Inject Failure
+      ↓
+System Degrades
+      ↓
+Metrics Change
+      ↓
+Detection
+      ↓
+Trading Blocked
+      ↓
+Recovery
+      ↓
+System Healthy
+```
+
+Every experiment generates a documented postmortem.
+
+---
+
+## Key Findings
+
+- Queue growth is the dominant latency bottleneck.
+- Individual order processing remains in the microsecond range.
+- Throughput remains stable until queue saturation.
+- Multiple telemetry sources provide better diagnostics than single metrics.
+- Architectural improvements consistently outperform micro-optimizations.
+
+---
+
+## Documentation
+
+- Architecture Decision Records
+- SLI/SLO Framework
+- Dependency Mapping
+- Baseline Measurements
+- Load Test Reports
+- Queue Analysis
+- Latency Forensics
+- Incident Postmortems
+
+---
+
+## Roadmap
+
+- [x] SLI/SLO framework
+- [x] Baseline latency measurements
+- [x] Load testing
+- [x] Queue depth analysis
+- [x] Prometheus instrumentation
+
+---
+
+## Engineering Methodology
+
+Every improvement follows a repeatable process:
+
+1. Measure.
+2. Establish a baseline.
+3. Apply controlled load.
+4. Identify the constraint.
+5. Optimize.
+6. Measure again.
+7. Document the outcome.
+
+The objective is reproducible performance engineering rather than speculative optimization.
+
+---
+
+## Current Status
+
+Actively developed as a performance engineering laboratory.
+
+Current focus areas include:
+
+- Latency profiling
+- Queue analysis
+- Observability
+- Chaos engineering
+- Distributed systems reliability
+
+---
+
+## Author
 
 **Ibrahim Cisse**
 
-Infrastructure, reliability, and trading systems engineering focused on observability, resilience, and production operations.
+Infrastructure Engineer specializing in Kubernetes, cloud platforms, observability, and performance engineering.
+
+This laboratory explores distributed systems, trading infrastructure, latency analysis, and production reliability through repeatable engineering experiments.
