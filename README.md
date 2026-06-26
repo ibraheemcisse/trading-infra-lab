@@ -4,7 +4,7 @@
 
 A production-inspired trading infrastructure laboratory for studying latency, observability, and distributed systems under load.
 
-This project recreates the core infrastructure found in modern electronic trading systems—including market data ingestion, FIX order routing, a matching engine, Kafka event streaming, PostgreSQL persistence, and full-stack observability—to investigate how latency emerges, how systems behave under stress, and where real bottlenecks occur.
+This project recreates the core infrastructure found in modern electronic trading systems including market data ingestion, FIX order routing, a matching engine, Kafka event streaming, PostgreSQL persistence, and full-stack observability to investigate how latency emerges, how systems behave under stress, and where real bottlenecks occur.
 
 Rather than building a feature-complete exchange, this lab focuses on **performance engineering**: measuring system behavior, validating assumptions with data, and documenting operational findings.
 
